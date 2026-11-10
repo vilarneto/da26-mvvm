@@ -37,7 +37,9 @@ struct ToDoListView: View {
                 }
             }
             .listStyle(.plain)
-            // [m3c03]
+            .refreshable {
+                await vm.refresh()
+            }
             // [m4c06: substituir — switch sobre vm.state com os três casos]
             .overlay {
                 if vm.items.isEmpty {
@@ -61,9 +63,8 @@ struct ToDoListView: View {
         .task {
             guard let store else { fatalError("Missing .environment(\\.toDoStore, ...)") }
             await vm.setupIfNeeded(store: store)
-            // [m3c05]
+            await vm.observeUpdates()
         }
-        // [m3c01]
     }
 }
 
@@ -98,7 +99,13 @@ extension ToDoListView {
 
         // [m4c05]
 
-        // [m3c04]
+        /// Recarrega a lista a cada aviso do store. Roda até o `.task` ser cancelado.
+        func observeUpdates() async {
+            guard let store else { return }
+            for await _ in store.updates() {
+                await refresh()
+            }
+        }
 
         func performToggle(_ item: ToDoItem) async {
             guard let store, let id = item.id else { return }
