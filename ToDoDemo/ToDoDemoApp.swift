@@ -9,12 +9,14 @@ import SwiftUI
 
 @main
 struct ToDoDemoApp: App {
-    // [m0c04]
+    // [m2c01: substituir]
+    private let store = MockToDoStore()
+    // [/m2c01]
 
     var body: some Scene {
         WindowGroup {
             ToDoListView()
         }
-        // [m0c05]
+        .environment(\.toDoStore, store)
     }
 }
