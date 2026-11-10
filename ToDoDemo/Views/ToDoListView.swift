@@ -19,21 +19,21 @@ struct ToDoListView: View {
         NavigationStack {
             List {
                 ForEach(vm.items) { item in
-                    // [m2c08: substituir — closure do toggle depois de ToDoItemView(item: item); Task de performDelete no lugar do TODO; reindentar]
-                    ToDoItemView(item: item)
-                        .contentShape(.rect)
-                        .onTapGesture {
-                            editingItem = item
+                    ToDoItemView(item: item) {
+                        Task { await vm.performToggle(item) }
+                    }
+                    .contentShape(.rect)
+                    .onTapGesture {
+                        editingItem = item
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("Delete", systemImage: "trash", role: .destructive) {
+                            Task { await vm.performDelete(item) }
                         }
-                        .swipeActions(edge: .trailing) {
-                            Button("Delete", systemImage: "trash", role: .destructive) {
-                                // TODO: Implementar exclusão
-                            }
-                        }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    // [/m2c08]
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 }
             }
             .listStyle(.plain)
@@ -98,7 +98,29 @@ extension ToDoListView {
 
         // [m4c05]
 
-        // [m2c02]
+        // [m3c04]
+
+        func performToggle(_ item: ToDoItem) async {
+            guard let store, let id = item.id else { return }
+            do {
+                let updated = try await store.toggleCompleted(id)
+                if let index = items.firstIndex(where: { $0.id == id }) {
+                    items[index] = updated
+                }
+            } catch {
+                // FIXME: O erro é ignorado. A produção desta demo nunca falha uma escrita; num projeto real, trate-o.
+            }
+        }
+
+        func performDelete(_ item: ToDoItem) async {
+            guard let store, let id = item.id else { return }
+            do {
+                try await store.deleteToDoItem(id: id)
+                items.removeAll { $0.id == id }
+            } catch {
+                // FIXME: O erro é ignorado. A produção desta demo nunca falha uma escrita; num projeto real, trate-o.
+            }
+        }
     }
 }
 

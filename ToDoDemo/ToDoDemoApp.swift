@@ -9,9 +9,7 @@ import SwiftUI
 
 @main
 struct ToDoDemoApp: App {
-    // [m2c01: substituir]
-    private let store = MockToDoStore()
-    // [/m2c01]
+    private let store = SomeStrangeToDoStore()
 
     var body: some Scene {
         WindowGroup {

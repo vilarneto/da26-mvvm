@@ -11,27 +11,22 @@ import SwiftUI
 struct ToDoEditView: View {
     let itemID: UUID?
 
-    // [m2c10: substituir — apagar os quatro @State; incluir @Environment(\.toDoStore) store e @State vm]
+    @Environment(\.toDoStore) private var store
     @Environment(\.dismiss) private var dismiss
-
-    @State private var title = ""
-    @State private var notes = ""
-    @State private var priority = ToDoItemPriority.medium
-    @State private var dueDate: Date?
-    // [/m2c10]
+    @State private var vm = ViewModel()
 
     var body: some View {
         NavigationStack {
-            // [m2c15: substituir — prefixar com vm.item. ou $vm.item. em cada linha com erro]
+            // [m4c15: substituir — envolver o Form num switch sobre vm.state e reindentar]
             Form {
                 Section {
-                    TextField("Title", text: $title)
-                    TextField("Notes", text: $notes, axis: .vertical)
+                    TextField("Title", text: $vm.item.title)
+                    TextField("Notes", text: $vm.item.notes, axis: .vertical)
                         .lineLimit(3...6)
                 }
 
                 Section {
-                    Picker("Priority", selection: $priority) {
+                    Picker("Priority", selection: $vm.item.priority) {
                         ForEach(ToDoItemPriority.allCases, id: \.self) { priority in
                             Text(priority.rawValue.capitalized)
                         }
@@ -40,46 +35,113 @@ struct ToDoEditView: View {
                 }
 
                 Section {
-                    if let dueDate = Binding($dueDate) {
+                    if let dueDate = Binding($vm.item.dueDate) {
                         DatePicker("Due date", selection: dueDate, displayedComponents: .date)
                         Button("Remove due date", role: .destructive) {
-                            self.dueDate = nil
+                            vm.item.dueDate = nil
                         }
                     } else {
                         Button("Add due date", systemImage: "plus.circle") {
-                            dueDate = .now
+                            vm.item.dueDate = .now
                         }
                     }
                 }
             }
-            // [/m2c15]
+            // [/m4c15]
             .navigationTitle(itemID == nil ? "New to-do" : "Edit to-do")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    // [m2c16: substituir — chamar performSave e dismiss numa Task; trocar a validação por !vm.canSave]
+                    // [m4c16: substituir — se vm.state é .transitioning(.saving), ProgressView no lugar do Save]
                     Button("Save") {
-                        // TODO: Implementar salvar (create ou update) e fechar a tela
+                        Task {
+                            await vm.performSave()
+                            dismiss()
+                        }
                     }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    // [/m2c16]
+                    .disabled(!vm.canSave)
+                    // [/m4c16]
                 }
             }
         }
-        // [m2c17]
+        .task {
+            guard let store else { fatalError("Missing .environment(\\.toDoStore, ...)") }
+            await vm.setupIfNeeded(store: store, itemID: itemID)
+        }
     }
 }
 
-// [m2c09]
+extension ToDoEditView {
+    @Observable fileprivate final class ViewModel {
+        @ObservationIgnored
+        private var store: (any ToDoStore)? = nil
 
-// [m2c18: substituir]
+        private var itemID: UUID?
+        /// O item em edição. Ao criar, nasce vazio e com `id == nil`; ao editar, é substituído pelo item lido.
+        /// O formulário não edita o `id` nem o `isCompleted`.
+        var item = ToDoItem(title: "", notes: "")
+
+        // [m4c10]
+
+        /// Só dá para salvar com um título que não seja só espaços.
+        var canSave: Bool {
+            !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        /// Código de inicialização.
+        /// A lógica roda uma única vez, mesmo que o `.task` execute de novo quando a View reaparecer.
+        func setupIfNeeded(store: any ToDoStore, itemID: UUID?) async {
+            guard self.store == nil else { return }
+
+            self.store = store
+            self.itemID = itemID
+            // [m4c11: substituir — num item novo, state = .ready]
+            if itemID != nil {
+                await load()
+            }
+            // [/m4c11]
+        }
+
+        private func load() async {
+            guard let store, let itemID else { return }
+            // [m4c12: substituir — state = .transitioning(.loading) antes; .ready ou .failed depois]
+            do {
+                item = try await store.readToDoItem(id: itemID)
+            } catch {
+                // FIXME: O erro é ignorado. (A gente vai corrigir isso depois.)
+            }
+            // [/m4c12]
+        }
+
+        // [m4c14]
+
+        func performSave() async {
+            guard let store else { return }
+            // [m4c13]
+            do {
+                if item.id == nil {
+                    _ = try await store.createToDoItem(item)
+                } else {
+                    _ = try await store.updateToDoItem(item)
+                }
+            } catch {
+                // FIXME: O erro é ignorado. A produção desta demo nunca falha uma escrita; num projeto real, trate-o.
+            }
+        }
+    }
+}
+
 #Preview("New") {
     ToDoEditView(itemID: nil)
+        .environment(\.toDoStore, MockToDoStore())
 }
 
 #Preview("Edit") {
-    ToDoEditView(itemID: UUID())
+    // O id do primeiro item do `MockToDoStore`.
+    ToDoEditView(itemID: UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        .environment(\.toDoStore, MockToDoStore())
 }
-// [/m2c18]
+
+// [m4c17]

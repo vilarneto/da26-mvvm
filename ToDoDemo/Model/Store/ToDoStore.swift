@@ -26,4 +26,11 @@ protocol ToDoStore {
     func updates() -> AsyncStream<Void>
 }
 
-// [m2c03]
+extension ToDoStore {
+    /// Lê o item, inverte `isCompleted` e o atualiza. Vale para qualquer conformante.
+    func toggleCompleted(_ id: UUID) async throws(ToDoStoreError) -> ToDoItem {
+        var item = try await readToDoItem(id: id)
+        item.isCompleted.toggle()
+        return try await updateToDoItem(item)
+    }
+}
