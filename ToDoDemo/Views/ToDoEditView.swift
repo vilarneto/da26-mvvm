@@ -17,52 +17,67 @@ struct ToDoEditView: View {
 
     var body: some View {
         NavigationStack {
-            // [m4c15: substituir — envolver o Form num switch sobre vm.state e reindentar]
-            Form {
-                Section {
-                    TextField("Title", text: $vm.item.title)
-                    TextField("Notes", text: $vm.item.notes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
+            Group {
+                switch vm.state {
+                case .transitioning(.loading):
+                    ProgressView("Loading…")
+                case .ready, .transitioning(.saving):
+                    Form {
+                        Section {
+                            TextField("Title", text: $vm.item.title)
+                            TextField("Notes", text: $vm.item.notes, axis: .vertical)
+                                .lineLimit(3...6)
+                        }
 
-                Section {
-                    Picker("Priority", selection: $vm.item.priority) {
-                        ForEach(ToDoItemPriority.allCases, id: \.self) { priority in
-                            Text(priority.rawValue.capitalized)
+                        Section {
+                            Picker("Priority", selection: $vm.item.priority) {
+                                ForEach(ToDoItemPriority.allCases, id: \.self) { priority in
+                                    Text(priority.rawValue.capitalized)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        Section {
+                            if let dueDate = Binding($vm.item.dueDate) {
+                                DatePicker("Due date", selection: dueDate, displayedComponents: .date)
+                                Button("Remove due date", role: .destructive) {
+                                    vm.item.dueDate = nil
+                                }
+                            } else {
+                                Button("Add due date", systemImage: "plus.circle") {
+                                    vm.item.dueDate = .now
+                                }
+                            }
                         }
                     }
-                    .pickerStyle(.segmented)
-                }
-
-                Section {
-                    if let dueDate = Binding($vm.item.dueDate) {
-                        DatePicker("Due date", selection: dueDate, displayedComponents: .date)
-                        Button("Remove due date", role: .destructive) {
-                            vm.item.dueDate = nil
-                        }
-                    } else {
-                        Button("Add due date", systemImage: "plus.circle") {
-                            vm.item.dueDate = .now
+                case .failed:
+                    ContentUnavailableView {
+                        Label("Couldn't load the to-do", systemImage: "exclamationmark.triangle")
+                    } actions: {
+                        Button("Try again") {
+                            Task { await vm.retry() }
                         }
                     }
                 }
             }
-            // [/m4c15]
             .navigationTitle(itemID == nil ? "New to-do" : "Edit to-do")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    // [m4c16: substituir — se vm.state é .transitioning(.saving), ProgressView no lugar do Save]
-                    Button("Save") {
-                        Task {
-                            await vm.performSave()
-                            dismiss()
+                    if case .transitioning(.saving) = vm.state {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task {
+                                await vm.performSave()
+                                dismiss()
+                            }
                         }
+                        .disabled(!vm.canSave)
                     }
-                    .disabled(!vm.canSave)
-                    // [/m4c16]
                 }
             }
         }
@@ -83,7 +98,7 @@ extension ToDoEditView {
         /// O formulário não edita o `id` nem o `isCompleted`.
         var item = ToDoItem(title: "", notes: "")
 
-        // [m4c10]
+        private(set) var state = AsyncState.transitioning(.loading)
 
         /// Só dá para salvar com um título que não seja só espaços.
         var canSave: Bool {
@@ -97,29 +112,33 @@ extension ToDoEditView {
 
             self.store = store
             self.itemID = itemID
-            // [m4c11: substituir — num item novo, state = .ready]
             if itemID != nil {
                 await load()
+            } else {
+                state = .ready
             }
-            // [/m4c11]
         }
 
         private func load() async {
             guard let store, let itemID else { return }
-            // [m4c12: substituir — state = .transitioning(.loading) antes; .ready ou .failed depois]
+            state = .transitioning(.loading)
             do {
                 item = try await store.readToDoItem(id: itemID)
+                state = .ready
             } catch {
-                // FIXME: O erro é ignorado. (A gente vai corrigir isso depois.)
+                state = .failed(error)
             }
-            // [/m4c12]
         }
 
-        // [m4c14]
+        /// "Tentar de novo" a partir de `.failed`.
+        func retry() async {
+            await load()
+        }
 
         func performSave() async {
             guard let store else { return }
-            // [m4c13]
+            state = .transitioning(.saving)
+            defer { state = .ready }
             do {
                 if item.id == nil {
                     _ = try await store.createToDoItem(item)
@@ -144,4 +163,12 @@ extension ToDoEditView {
         .environment(\.toDoStore, MockToDoStore())
 }
 
-// [m4c17]
+#Preview("Edit: Loading") {
+    ToDoEditView(itemID: UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        .environment(\.toDoStore, MockNeverRespondingToDoStore())
+}
+
+#Preview("Edit: Error") {
+    ToDoEditView(itemID: UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        .environment(\.toDoStore, MockFailingToDoStore())
+}

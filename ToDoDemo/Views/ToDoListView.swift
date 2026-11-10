@@ -40,13 +40,24 @@ struct ToDoListView: View {
             .refreshable {
                 await vm.refresh()
             }
-            // [m4c06: substituir — switch sobre vm.state com os três casos]
             .overlay {
-                if vm.items.isEmpty {
-                    ContentUnavailableView("No to-dos", systemImage: "checklist")
+                switch vm.state {
+                case .transitioning:
+                    ProgressView("Loading…")
+                case .ready:
+                    if vm.items.isEmpty {
+                        ContentUnavailableView("No to-dos", systemImage: "checklist")
+                    }
+                case .failed:
+                    ContentUnavailableView {
+                        Label("Couldn't load the to-dos", systemImage: "exclamationmark.triangle")
+                    } actions: {
+                        Button("Try again") {
+                            Task { await vm.retry() }
+                        }
+                    }
                 }
             }
-            // [/m4c06]
             .navigationTitle("To-dos")
             .toolbar {
                 Button("New to-do", systemImage: "plus") {
@@ -72,9 +83,8 @@ extension ToDoListView {
     @Observable fileprivate final class ViewModel {
         @ObservationIgnored
         private var store: (any ToDoStore)? = nil
-        // [m4c03: substituir — acrescentar state; items passa a private(set)]
-        var items: [ToDoItem] = []
-        // [/m4c03]
+        private(set) var state = AsyncState.transitioning(.loading)
+        private(set) var items: [ToDoItem] = []
 
         /// Código de inicialização.
         /// A lógica roda uma única vez, mesmo que o `.task` execute de novo quando a View reaparecer.
@@ -87,17 +97,20 @@ extension ToDoListView {
 
         func refresh() async {
             guard let store else { return }
-            // [m4c04: substituir — atribuir state: .ready ou .failed]
             do {
                 items = try await store.listToDoItems()
+                state = .ready
             } catch {
-                // FIXME: JAMAIS faça isso num projeto real, pois mascara erros reais! (A gente vai corrigir isso depois.)
                 items = []
+                state = .failed(error)
             }
-            // [/m4c04]
         }
 
-        // [m4c05]
+        /// "Tentar de novo" a partir de `.failed`.
+        func retry() async {
+            state = .transitioning(.loading)
+            await refresh()
+        }
 
         /// Recarrega a lista a cada aviso do store. Roda até o `.task` ser cancelado.
         func observeUpdates() async {
@@ -141,4 +154,12 @@ extension ToDoListView {
         .environment(\.toDoStore, MockEmptyToDoStore())
 }
 
-// [m4c09]
+#Preview("Loading") {
+    ToDoListView()
+        .environment(\.toDoStore, MockNeverRespondingToDoStore())
+}
+
+#Preview("Error") {
+    ToDoListView()
+        .environment(\.toDoStore, MockFailingToDoStore())
+}
