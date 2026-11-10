@@ -9,23 +9,16 @@ import SwiftUI
 
 /// A tela da lista de to-dos.
 struct ToDoListView: View {
-    // [m1c10]
-    // [m1c02]
+    @Environment(\.toDoStore) private var store
+    @State private var vm = ViewModel()
     @State private var isPresentingNew = false
     /// O item tocado na lista; não nulo enquanto o sheet de edição está aberto.
     @State private var editingItem: ToDoItem?
 
-    // [m1c06: apagar]
-    /// Ainda não há de onde ler os itens: a lista nasce vazia.
-    private let items: [ToDoItem] = []
-
-    // [/m1c06]
     var body: some View {
         NavigationStack {
             List {
-                // [m1c04: substituir — trocar items por vm.items]
-                ForEach(items) { item in
-                // [/m1c04]
+                ForEach(vm.items) { item in
                     // [m2c08: substituir — closure do toggle depois de ToDoItemView(item: item); Task de performDelete no lugar do TODO; reindentar]
                     ToDoItemView(item: item)
                         .contentShape(.rect)
@@ -47,9 +40,7 @@ struct ToDoListView: View {
             // [m3c03]
             // [m4c06: substituir — switch sobre vm.state com os três casos]
             .overlay {
-                // [m1c05: substituir — trocar items por vm.items]
-                if items.isEmpty {
-                // [/m1c05]
+                if vm.items.isEmpty {
                     ContentUnavailableView("No to-dos", systemImage: "checklist")
                 }
             }
@@ -67,15 +58,58 @@ struct ToDoListView: View {
         .sheet(item: $editingItem) { item in
             ToDoEditView(itemID: item.id)
         }
-        // [m1c11]
+        .task {
+            guard let store else { fatalError("Missing .environment(\\.toDoStore, ...)") }
+            await vm.setupIfNeeded(store: store)
+            // [m3c05]
+        }
         // [m3c01]
     }
 }
 
-// [m1c01]
+extension ToDoListView {
+    @Observable fileprivate final class ViewModel {
+        @ObservationIgnored
+        private var store: (any ToDoStore)? = nil
+        // [m4c03: substituir — acrescentar state; items passa a private(set)]
+        var items: [ToDoItem] = []
+        // [/m4c03]
 
-// [m1c15: substituir]
-#Preview {
-    ToDoListView()
+        /// Código de inicialização.
+        /// A lógica roda uma única vez, mesmo que o `.task` execute de novo quando a View reaparecer.
+        func setupIfNeeded(store: any ToDoStore) async {
+            guard self.store == nil else { return }
+
+            self.store = store
+            await refresh()
+        }
+
+        func refresh() async {
+            guard let store else { return }
+            // [m4c04: substituir — atribuir state: .ready ou .failed]
+            do {
+                items = try await store.listToDoItems()
+            } catch {
+                // FIXME: JAMAIS faça isso num projeto real, pois mascara erros reais! (A gente vai corrigir isso depois.)
+                items = []
+            }
+            // [/m4c04]
+        }
+
+        // [m4c05]
+
+        // [m2c02]
+    }
 }
-// [/m1c15]
+
+#Preview("Common") {
+    ToDoListView()
+        .environment(\.toDoStore, MockToDoStore())
+}
+
+#Preview("Empty") {
+    ToDoListView()
+        .environment(\.toDoStore, MockEmptyToDoStore())
+}
+
+// [m4c09]
